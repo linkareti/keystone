@@ -9,6 +9,7 @@ import type { GraphQLFormattedError, GraphQLSchema } from 'graphql'
 import { createServer, type Server } from 'http'
 // @ts-expect-error
 import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.js'
+import { Writable } from 'stream'
 import type { GraphQLConfig, KeystoneConfig, KeystoneContext, StorageConfig } from '../../types'
 import { s3AssetsCommon, s3FileAssetsAPI, s3ImageAssetsAPI } from '../assets/s3'
 import { addHealthCheck } from './addHealthCheck'
@@ -186,32 +187,48 @@ const proxyStorageIfNeeded = (storageConfigKey: string, storageConfig: StorageCo
     const storageProxy: express.RequestHandler = async (request, response, next) => {
       const fileKey = request.params[0];
 
-      //Leave the local storage to express.static as it was in the original code of Keystone 
-      if (storageConfig.kind === 'local') {
-        next();
-        return;
+      if (storageConfig.kind === 's3') {
+        try {
+          const assetApi = storageConfig.type === 'image' ? s3ImageAssetsAPI(storageConfig) : s3FileAssetsAPI(storageConfig);
+          const {
+            stream,
+            contentLength,
+            contentType
+          } = await assetApi.download(fileKey);
+
+          if (contentLength) {
+            response.header('Content-Length', contentLength.toString());
+          }
+          if (contentType) {
+            response.header('Content-Type', contentType);
+          }
+
+          const writable = Writable.toWeb(response);
+          try {
+            await stream.pipeTo(writable);
+          } catch (e) {
+            // We really don't care if errors happened here...
+            // The browser stopped the connection, it rained,
+            // the dog might've chewed on the fiber cable...
+            // Bail!
+            return
+          }
+
+        } catch (e) {
+          console.error(e);
+          response.status(500).send('Failed');
+        }
+
+        response.end();
+      } else {
+        next()
       }
-
-      //S3 downloads are handled by the s3AssetsAPI
-      try {
-        const assetApi = storageConfig.type === 'image' ? s3ImageAssetsAPI(storageConfig) : s3FileAssetsAPI(storageConfig);
-        await assetApi.download(fileKey, response, (key: string, value: string) => {
-          response.header(key, value);
-        });
-      } catch (e) {
-        console.error(e);
-        response.status(500).send('Failed');
-
-      }
-
-      response.end();
-      return;
     }
 
     expressServer
-    .route(`${storageConfig.serverRoute.path}/${storageConfigKey}/*`)
-    .get(storageAccessControl)
-    .get(storageProxy);
+      .route(`${storageConfig.serverRoute.path}/${storageConfigKey}/*`)
+      .get(storageAccessControl)
+      .get(storageProxy);
 
     if (storageConfig.kind === 'local') {
       expressServer.use(`${storageConfig.serverRoute.path}/${storageConfigKey}`,

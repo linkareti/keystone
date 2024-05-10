@@ -4,13 +4,38 @@ import { Upload } from '@aws-sdk/lib-storage'
 
 import type { StorageConfig } from '../../types'
 import type { FileAdapter, ImageAdapter } from './types'
-import { Writable } from 'stream'
 
-export function s3ImageAssetsAPI(storageConfig: StorageConfig & { kind: 's3' }, storageKey: string=''): ImageAdapter {
+async function s3ProxyDownloader(
+  storageConfig: StorageConfig & { kind: 's3' },
+  filename: string): Promise<{
+    contentType?: string,
+    contentLength?: number
+    stream: ReadableStream<any>
+  }> {
+  const { s3 } = s3AssetsCommon(storageConfig)
+
+  const command = new GetObjectCommand({
+    Bucket: storageConfig.bucketName,
+    Key: filename,
+  })
+
+  const s3Response = await s3.send(command)
+  if (!s3Response.Body) {
+    throw new Error('No response body')
+  }
+
+  return {
+    contentLength: s3Response.ContentLength,
+    contentType: s3Response.ContentType,
+    stream: s3Response.Body.transformToWebStream()
+  }
+}
+
+export function s3ImageAssetsAPI(storageConfig: StorageConfig & { kind: 's3' }, storageKey: string = ''): ImageAdapter {
   const { generateUrl, s3, presign, s3Endpoint } = s3AssetsCommon(storageConfig)
   return {
     async url(id, extension) {
-      if(storageConfig.serverRoute) {
+      if (storageConfig.serverRoute) {
         return generateUrl(`${storageConfig.serverRoute.path}/${storageKey}/${storageConfig.pathPrefix || ''}${id}.${extension}`);
       }
 
@@ -44,16 +69,18 @@ export function s3ImageAssetsAPI(storageConfig: StorageConfig & { kind: 's3' }, 
         Key: `${storageConfig.pathPrefix || ''}${id}.${extension}`,
       })
     },
-    download: downloadFn(storageConfig)
+    async download(filename) {
+      return s3ProxyDownloader(storageConfig, filename)
+    }
   }
 }
 
-export function s3FileAssetsAPI(storageConfig: StorageConfig & { kind: 's3' }, storageKey: string=''): FileAdapter {
+export function s3FileAssetsAPI(storageConfig: StorageConfig & { kind: 's3' }, storageKey: string = ''): FileAdapter {
   const { generateUrl, s3, presign, s3Endpoint } = s3AssetsCommon(storageConfig)
 
   return {
     async url(filename) {
-      if(storageConfig.serverRoute) {
+      if (storageConfig.serverRoute) {
         return generateUrl(`${storageConfig.serverRoute.path}/${storageKey}/${storageConfig.pathPrefix || ''}${filename}`);
       }
       if (!storageConfig.signed) {
@@ -88,7 +115,9 @@ export function s3FileAssetsAPI(storageConfig: StorageConfig & { kind: 's3' }, s
         Key: (storageConfig.pathPrefix || '') + filename,
       })
     },
-    download: downloadFn(storageConfig)
+    async download(filename) {
+      return s3ProxyDownloader(storageConfig, filename)
+    }
   }
 }
 
@@ -138,25 +167,4 @@ export function s3AssetsCommon(storageConfig: StorageConfig & { kind: 's3' }) {
       })
     },
   }
-}
-
-const downloadFn = (storageConfig: StorageConfig & { kind: 's3' }) => {
-  return async (filename: string, stream: Writable, headers: (key: string, val: string) => void) => {
-    const { s3 } = s3AssetsCommon(storageConfig)
-    console.log({headers,stream});
-    const command = new GetObjectCommand({
-      Bucket: storageConfig.bucketName,
-      Key: filename,
-    })
-
-    const s3Response = await s3.send(command)
-    if (!s3Response.Body) {
-      throw new Error('No response body')
-    }
-
-    headers('Content-Type', s3Response.ContentType ?? '')
-    headers('Content-Length', s3Response.ContentLength?.toString() ?? '')
-
-    await s3Response.Body.transformToWebStream().pipeTo(Writable.toWeb(stream))
-  };
 }
