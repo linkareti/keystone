@@ -117,11 +117,11 @@ export type StorageConfig = (
   } & ({
     /** Your s3 instance's region */
     region: string,
-    endpoint: undefined
+    endpoint?: never
   } | {
-    region: undefined,
     /** An endpoint to use - to be provided if you are not using AWS as your endpoint */
-    endpoint?: string
+    endpoint: string,
+    region?: never
   }))
 ) &
   FileOrImage
