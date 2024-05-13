@@ -91,7 +91,7 @@ export type StorageConfig = (
     serverRoute?: {
       /** The partial path that the assets will be hosted at by keystone, eg `/images` or `/our-cool-files` */
       path: string,
-    } | null,
+    },
     /** A function that is checked before serving the file or image to check for permissions. 
      * This function will only be respected if the serverRoute is set
     */
