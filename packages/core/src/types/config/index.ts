@@ -88,7 +88,7 @@ export type StorageConfig = (
     /** If true, will force the 'old' S3 path style of putting bucket name at the start of the pathname of the URL  */
     forcePathStyle?: boolean,
     /** The configuration for keystone's hosting of the assets - if set to null, keystone will not host the assets */
-    serverRoute: {
+    serverRoute?: {
       /** The partial path that the assets will be hosted at by keystone, eg `/images` or `/our-cool-files` */
       path: string,
     } | null,
