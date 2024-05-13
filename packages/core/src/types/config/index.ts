@@ -70,7 +70,7 @@ export type StorageConfig = (
     preserve?: boolean
     transformName?: (filename: string) => string
   }
-  | {
+  | ({
     /** The kind of storage being configured */
     kind: 's3'
     /** Sets signing of the asset - for use when you want private assets */
@@ -81,14 +81,10 @@ export type StorageConfig = (
     pathPrefix?: string
     /** Your s3 instance's bucket name */
     bucketName: string
-    /** Your s3 instance's region */
-    region: string
     /** An access Key ID with write access to your S3 instance */
     accessKeyId?: string
     /** The secret access key that gives permissions to your access Key Id */
     secretAccessKey?: string
-    /** An endpoint to use - to be provided if you are not using AWS as your endpoint */
-    endpoint?: string
     /** If true, will force the 'old' S3 path style of putting bucket name at the start of the pathname of the URL  */
     forcePathStyle?: boolean,
     /** The configuration for keystone's hosting of the assets - if set to null, keystone will not host the assets */
@@ -118,7 +114,15 @@ export type StorageConfig = (
     | 'authenticated-read'
     | 'bucket-owner-read'
     | 'bucket-owner-full-control'
-  }
+  } & ({
+    /** Your s3 instance's region */
+    region: string,
+    endpoint: undefined
+  } | {
+    region: undefined,
+    /** An endpoint to use - to be provided if you are not using AWS as your endpoint */
+    endpoint?: string
+  }))
 ) &
   FileOrImage
 
