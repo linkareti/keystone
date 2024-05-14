@@ -188,43 +188,40 @@ const proxyStorageIfNeeded = (storageConfigKey: string, storageConfig: StorageCo
       const fileKey = request.params[0]
 
       if (storageConfig.kind === 's3') {
-        let proxied: {
-          stream: ReadableStream<any>,
-          contentLength?: number,
-          contentType?: string
-        } | null;
+        const assetApi = storageConfig.type === 'image' ? s3ImageAssetsAPI(storageConfig) : s3FileAssetsAPI(storageConfig);
 
         try {
-          const assetApi = storageConfig.type === 'image' ? s3ImageAssetsAPI(storageConfig) : s3FileAssetsAPI(storageConfig);
-          proxied = await assetApi.download(fileKey)
+          const {
+            stream,
+            contentLength,
+            contentType
+          } = await assetApi.download(fileKey)
+
+          if (!response.closed) {
+            if (contentLength) {
+              response.header('Content-Length', contentLength.toString())
+            }
+            if (contentType) {
+              response.header('Content-Type', contentType)
+            }
+
+            const writable = Writable.toWeb(response)
+            await stream.pipeTo(writable)
+          }
         } catch (e) {
-          response.status(500).send('Failed to get resource');
-          return;
+          if (!response.closed) {
+            if ((e as any).Code === 'NoSuchKey') {
+              response.status(404).send('Not found')
+              return;
+            }
+            response.status(500).send('Failed to get resource')
+          }
+        } finally {
+          if (!response.closed) {
+            response.end()
+          }
         }
 
-        const writable = Writable.toWeb(response)
-        const {
-          stream,
-          contentLength,
-          contentType
-        } = proxied;
-        try {
-          if (contentLength) {
-            response.header('Content-Length', contentLength.toString())
-          }
-          if (contentType) {
-            response.header('Content-Type', contentType)
-          }
-          await stream.pipeTo(writable)
-        } catch (e) {
-          // We really don't care if errors happened here...
-          // The browser stopped the connection, it rained,
-          // the dog might've chewed on the fiber cable...
-          // Bail!
-          return
-        }
-
-        response.end();
       } else {
         next()
       }
