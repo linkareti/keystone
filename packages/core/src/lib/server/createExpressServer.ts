@@ -5,7 +5,7 @@ import { ApolloServerPluginLandingPageLocalDefault } from '@apollo/server/plugin
 import { json } from 'body-parser'
 import cors, { type CorsOptions } from 'cors'
 import express from 'express'
-import type { GraphQLFormattedError, GraphQLSchema } from 'graphql'
+import { type GraphQLFormattedError, type GraphQLSchema } from 'graphql'
 import { createServer, type Server } from 'http'
 // @ts-expect-error
 import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.js'
@@ -185,38 +185,43 @@ const proxyStorageIfNeeded = (storageConfigKey: string, storageConfig: StorageCo
     }
 
     const storageProxy: express.RequestHandler = async (request, response, next) => {
-      const fileKey = request.params[0];
+      const fileKey = request.params[0]
 
       if (storageConfig.kind === 's3') {
+        let proxied: {
+          stream: ReadableStream<any>,
+          contentLength?: number,
+          contentType?: string
+        } | null;
+
         try {
           const assetApi = storageConfig.type === 'image' ? s3ImageAssetsAPI(storageConfig) : s3FileAssetsAPI(storageConfig);
-          const {
-            stream,
-            contentLength,
-            contentType
-          } = await assetApi.download(fileKey);
+          proxied = await assetApi.download(fileKey)
+        } catch (e) {
+          response.status(500).send('Failed to get resource');
+          return;
+        }
 
+        const writable = Writable.toWeb(response)
+        const {
+          stream,
+          contentLength,
+          contentType
+        } = proxied;
+        try {
           if (contentLength) {
-            response.header('Content-Length', contentLength.toString());
+            response.header('Content-Length', contentLength.toString())
           }
           if (contentType) {
-            response.header('Content-Type', contentType);
+            response.header('Content-Type', contentType)
           }
-
-          const writable = Writable.toWeb(response);
-          try {
-            await stream.pipeTo(writable);
-          } catch (e) {
-            // We really don't care if errors happened here...
-            // The browser stopped the connection, it rained,
-            // the dog might've chewed on the fiber cable...
-            // Bail!
-            return
-          }
-
+          await stream.pipeTo(writable)
         } catch (e) {
-          console.error(e);
-          response.status(500).send('Failed');
+          // We really don't care if errors happened here...
+          // The browser stopped the connection, it rained,
+          // the dog might've chewed on the fiber cable...
+          // Bail!
+          return
         }
 
         response.end();
